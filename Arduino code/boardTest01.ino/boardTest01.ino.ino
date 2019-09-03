@@ -47,22 +47,24 @@
 #define PROCESSOR_ENABLE      A3
 #define MOTORS_ENABLE         A4
 #define BUTTON                A5
-#define FIVE_VOLT_ENABLE      A6
-#define BEEPER                A7
+
+#define MAIN_POWER_ENABLE      5
+#define BEEPER                4
+
 #define RIGHT_ENCODER_A       2
-#define RIGHT_ENCODER_B       4
+#define RIGHT_ENCODER_B       A6
 #define LEFT_ENCODER_A        3
-#define LEFT_ENCODER_B        5
+#define LEFT_ENCODER_B        A7
 
 #define MOTOR_CONTROLLER_6    6
 #define MOTOR_CONTROLLER_5    7
 #define MOTOR_CONTROLLER_4    8
 #define MOTOR_CONTROLLER_3    9
 
-#define LEFT_MOTOR_PWM        6   // TODO: THESE PINS ARE JUST A GUESS!  Figure out what they really are and fix this.
-#define LEFT_MOTOR_DIRECTION  7
-#define RIGHT_MOTOR_PWM       8
-#define RIGHT_MOTOR_DIRECTION 9
+#define LEFT_MOTOR_PWM        6    // Pins 6 and 9 are capable of analog write.  The control scheme will need to take into account
+#define LEFT_MOTOR_DIRECTION  7    // the direction and sometimes invert the PWM to match the actual desired speed.  The two pins 
+#define RIGHT_MOTOR_DIRECTION 8    // for each motor correspond to the two outputs for the motor or in other words, the L298 is actually
+#define RIGHT_MOTOR_PWM       9    // A quad half bridge device with the enables done in pairs.  
 
 
 #define EXTRA_IO_4            10
@@ -90,29 +92,29 @@
 #define PID_SHIFT_POSITIONS   6     // effectively divide the PID terms by 64
 
 
-#define DOT_DELAY            200 // for morse code
-
-#define MAX_USER_MESSAGE_LENGTH   100
-
+// Stuff relating to Morse code:
+#define DOT_DELAY            30 // for morse code
 
 
-char* letters[] = {
+char* letters[] = 
+{
   ".-", "-...", "-.-.", "-..", ".", "..-.", "--.", "....", "..", // A-I
   ".---", "-.-", ".-..", "--", "-.", "---", ".--.", "--.-", ".-.", // J-R
   "...", "-", "..-", "...-", ".--", "-..-", "-.--", "--.." // S-Z
 };
 
-char* numbers[] = {
+char* numbers[] = 
+{
   "-----", ".----", "..---", "...--", "....-", ".....",
   "-....", "--...", "---..", "----."
 };
 
 
 
-byte serialBuffer[SERIAL_BUFFER_SIZE];
-byte messageQueue[QUEUE_DEPTH][SERIAL_BUFFER_SIZE - 1];
-byte messagesInQueue = 0;
-byte userMessage[MAX_USER_MESSAGE_LENGTH];
+//byte serialBuffer[SERIAL_BUFFER_SIZE];
+//byte messageQueue[QUEUE_DEPTH][SERIAL_BUFFER_SIZE - 1];
+//byte messagesInQueue = 0;
+//byte userMessage[MAX_USER_MESSAGE_LENGTH];
 
 // for motor control
 int leftMotorTicksPerInterrupt = 0;
@@ -135,8 +137,8 @@ byte currentUserMessageCharacter;
 
 void setup()
 {
-  // Enable power to the Arduino
-  digitalWrite(FIVE_VOLT_ENABLE, HIGH);
+  // Enable power to the whole board without requiring that the user hold the button.  
+  digitalWrite(MAIN_POWER_ENABLE, HIGH);
 
   // Wait a moment for power to stabilize then check the main battery voltage
   delay(100);
@@ -147,7 +149,7 @@ void setup()
     pinMode(PROCESSOR_ENABLE, OUTPUT);
     pinMode(MOTORS_ENABLE, OUTPUT);
     pinMode(BUTTON, INPUT);
-    pinMode(FIVE_VOLT_ENABLE, OUTPUT);
+    pinMode(MAIN_POWER_ENABLE, OUTPUT);
     pinMode(BEEPER, OUTPUT);
     pinMode(RIGHT_ENCODER_A, INPUT);
     pinMode(RIGHT_ENCODER_B, INPUT);
@@ -163,13 +165,125 @@ void setup()
     pinMode(EXTRA_IO_1, OUTPUT);
     pinMode(LED, OUTPUT);
 
+    // Set up the USB serial port
+    Serial.begin(9600);
+
+    beep(100,16000);
+    beep(100,8000);
+    beep(100,4000);
+    beep(100,2000);
+    beep(100,1000);
+    beep(100,500);
+    beep(100,250);
+    beep(100,125);
+    beep(100,62);
+
+    delay(300);
+    sendMorseString("Robot ON");
+
 }
+
+
+
 
 void loop()
 {
-  digitalWrite(BEEPER, HIGH);
+  digitalWrite(LED, HIGH);
   delay(500);
-  digitalWrite(BEEPER,LOW);
+  digitalWrite(LED, LOW);
   delay(500); 
 
+}
+
+
+
+
+void beep(unsigned int duration, int frequency)
+{ // beeps for duration milliseconds at the desired frequency
+
+  // Calculate the delay needed for the desired frequency
+  int delayInMicroseconds = 1000000 / frequency;
+
+  unsigned long numberOfCycles = duration; // I'm breaking this up to avoid math issues that give incorrect results
+  numberOfCycles *= 1000;
+  numberOfCycles /= delayInMicroseconds;
+
+  bool pinState = 0;
+  
+  for(int I = 0; I < numberOfCycles; I++)
+  {
+    if(pinState)
+      digitalWrite(BEEPER, LOW);
+    else
+      digitalWrite(BEEPER,HIGH);
+    pinState = !pinState;
+
+    delayMicroseconds(delayInMicroseconds);
+  }
+
+  // Set the BEEPER pin LOW to conserve power
+  digitalWrite(BEEPER, LOW);
+}
+
+
+
+void sendMorseString(char* theString)
+{ // Sends letters, numbers and spaces only.  Punctuation or other characters will be ignored.
+  // This is used at startup only.  During normal operation, characters are sent one at a time between successive loop()'s.
+  char ch;
+  int I = 0;
+  while (theString[I] != NULL)
+  {
+    ch = theString[I];
+    I++;
+
+    if (ch >= 'a' && ch <= 'z')
+    {
+      sendMorseCharacter(letters[ch - 'a']);
+    }
+
+    else if (ch >= 'A' && ch <= 'Z')
+    {
+      sendMorseCharacter(letters[ch - 'A']);
+    }
+
+    else if (ch >= '0' && ch <= '9')
+    {
+      sendMorseCharacter(numbers[ch - '0']);
+    }
+
+    else if (ch == ' ') // SPACE
+    {
+      int temp = DOT_DELAY;
+      temp *= 6; // Was 4
+      delay(temp);
+    }
+  }
+}
+
+void sendMorseCharacter(char* sequence)
+{
+  int I = 0;
+  while (sequence[I] != NULL)
+  {
+    outputDotOrDash(sequence[I]);
+    I++;
+  }
+  int temp = DOT_DELAY;
+  temp *= 6;
+  delay(temp); // space between characters
+}
+
+
+
+void outputDotOrDash(char dotOrDash)
+{
+  int dashDelay = DOT_DELAY;
+  dashDelay *= 3;
+  
+  if (dotOrDash == '.')
+    beep(DOT_DELAY, 2000);
+  else // must be a -  
+    beep(dashDelay, 2000);
+  delay(dashDelay); //  space between beeps
 }
