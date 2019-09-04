@@ -1,4 +1,4 @@
-/*   Firmware for Arduino board V3
+/*   Firmware for Arduino board V4
 
      Written by Jack Buffington 2019 with the exception of the Morse Code beep functions, which are lightly modified from
      what can be found on the Arduino website.
@@ -48,7 +48,7 @@
 #define MOTORS_ENABLE         A4
 #define BUTTON                A5
 
-#define MAIN_POWER_ENABLE      5
+#define MAIN_POWER_ENABLE     5
 #define BEEPER                4
 
 #define RIGHT_ENCODER_A       2
@@ -168,18 +168,22 @@ void setup()
     // Set up the USB serial port
     Serial.begin(9600);
 
-    beep(100,16000);
-    beep(100,8000);
-    beep(100,4000);
-    beep(100,2000);
-    beep(100,1000);
-    beep(100,500);
-    beep(100,250);
-    beep(100,125);
+//    beep(100,16000);
+//    beep(100,8000);
+//    beep(100,4000);
+//    beep(100,2000);
+//    beep(100,1000);
+//    beep(100,500);
+//    beep(100,250);
+//    beep(100,125);
     beep(100,62);
 
     delay(300);
-    sendMorseString("Robot ON");
+    //sendMorseString("A");
+    digitalWrite(PROCESSOR_ENABLE, HIGH);
+    delay(200);
+    //sendMorseString("B");
+    digitalWrite(MOTORS_ENABLE,HIGH);
 
 }
 
@@ -188,10 +192,25 @@ void setup()
 
 void loop()
 {
-  digitalWrite(LED, HIGH);
-  delay(500);
-  digitalWrite(LED, LOW);
-  delay(500); 
+
+//  digitalWrite(LED, HIGH); // blink forever
+//  delay(500);
+//  digitalWrite(LED, LOW);
+//  delay(500); 
+
+  // turn on the LED if the button is pushed, also test the hardware serial port
+  if(digitalRead(BUTTON))  
+  {
+    digitalWrite(LED, HIGH);
+    Serial.write("High");
+  }
+  else
+  {
+    digitalWrite(LED,LOW);
+    Serial.write("Low");
+  }
+//   if(digitalRead(BUTTON))  //  Turn off the power if the button is pushed
+//    digitalWrite(MAIN_POWER_ENABLE, LOW);
 
 }
 
