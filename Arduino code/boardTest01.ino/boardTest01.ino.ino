@@ -51,31 +51,27 @@
 #define MAIN_POWER_ENABLE     5
 #define BEEPER                4
 
-#define RIGHT_ENCODER_A       2
-#define RIGHT_ENCODER_B       A6
-#define LEFT_ENCODER_A        3
-#define LEFT_ENCODER_B        A7
+#define RIGHT_ENCODER_A       3
+#define RIGHT_ENCODER_B       6
+#define LEFT_ENCODER_A        2
+#define LEFT_ENCODER_B        11
 
-#define MOTOR_CONTROLLER_6    6
-#define MOTOR_CONTROLLER_5    7
-#define MOTOR_CONTROLLER_4    8
-#define MOTOR_CONTROLLER_3    9
 
-#define LEFT_MOTOR_PWM        6    // Pins 6 and 9 are capable of analog write.  The control scheme will need to take into account
-#define LEFT_MOTOR_DIRECTION  7    // the direction and sometimes invert the PWM to match the actual desired speed.  The two pins 
+#define LEFT_MOTOR_PWM        10    // Pins 6 and 9 are capable of analog write.  The control scheme will need to take into account
+#define LEFT_MOTOR_DIRECTION  7   // the direction and sometimes invert the PWM to match the actual desired speed.  The two pins 
 #define RIGHT_MOTOR_DIRECTION 8    // for each motor correspond to the two outputs for the motor or in other words, the L298 is actually
 #define RIGHT_MOTOR_PWM       9    // A quad half bridge device with the enables done in pairs.  
 
 
-#define EXTRA_IO_4            10
-#define EXTRA_IO_3            11
+#define EXTRA_IO_4            A7   // A7 is analog input only!
+#define EXTRA_IO_3            A6   // A6 is analog input only!
 #define EXTRA_IO_2            12
 #define EXTRA_IO_1            A1
 #define LED                   13
 
 // 14.97V is where my drill considers the battery to be dead
-// It reads 23.85V when full.
-#define BATTERY_FULL          23500
+// After sitting for a while, a freshly charged battery is at 20.2V
+#define BATTERY_FULL          20200
 #define BATTERY_DEAD          15000
 
 #define SERIAL_BUFFER_SIZE    8
@@ -84,12 +80,27 @@
 
 #define TICKS_PER_METER       10000   // TODO:   Figure out the correct value for this (1920 pulses per wheel revolution)
 
-// How many times per second the PID interrupt happens per second.
-#define PID_INTERRUPT_RATE    10
-#define P_TERM                32   
-#define I_TERM                0
-#define D_TERM                0
-#define PID_SHIFT_POSITIONS   6     // effectively divide the PID terms by 64
+
+                                     // 100Hz rate
+#define P_TERM                4   // 4                
+#define I_TERM                3    // 3 
+#define D_TERM                35   // 35
+
+                                   // 50Hz rate // These ones are pretty good
+#define P_TERM                4    // 4    60 allows up to 4 counts difference
+#define I_TERM                3    // 3 
+#define D_TERM                35   // 35
+
+//                                   // 30Hz rate 
+//#define P_TERM                20    // 4
+//#define I_TERM                0    // 3 
+//#define D_TERM                85   // 35
+
+#define PID_HISTORY_DEPTH     2
+
+
+
+//#define PID_SHIFT_POSITIONS   6     // effectively divide the PID terms by 64
 
 
 // Stuff relating to Morse code:
@@ -111,10 +122,7 @@ char* numbers[] =
 
 
 
-//byte serialBuffer[SERIAL_BUFFER_SIZE];
-//byte messageQueue[QUEUE_DEPTH][SERIAL_BUFFER_SIZE - 1];
-//byte messagesInQueue = 0;
-//byte userMessage[MAX_USER_MESSAGE_LENGTH];
+
 
 // for motor control
 int leftMotorTicksPerInterrupt = 0;
@@ -155,10 +163,10 @@ void setup()
     pinMode(RIGHT_ENCODER_B, INPUT);
     pinMode(LEFT_ENCODER_A, INPUT);
     pinMode(LEFT_ENCODER_B, INPUT);
-    pinMode(MOTOR_CONTROLLER_6, OUTPUT);
-    pinMode(MOTOR_CONTROLLER_5, OUTPUT);
-    pinMode(MOTOR_CONTROLLER_4, OUTPUT);
-    pinMode(MOTOR_CONTROLLER_3, OUTPUT);
+    pinMode(LEFT_MOTOR_PWM, OUTPUT);
+    pinMode(LEFT_MOTOR_DIRECTION, OUTPUT);
+    pinMode(RIGHT_MOTOR_PWM, OUTPUT);
+    pinMode(RIGHT_MOTOR_DIRECTION, OUTPUT);
     pinMode(EXTRA_IO_4, OUTPUT);
     pinMode(EXTRA_IO_3, OUTPUT);
     pinMode(EXTRA_IO_2, OUTPUT);
@@ -166,7 +174,7 @@ void setup()
     pinMode(LED, OUTPUT);
 
     // Set up the USB serial port
-    Serial.begin(9600);
+    Serial.begin(2000000);
 
 //    beep(100,16000);
 //    beep(100,8000);
@@ -183,9 +191,154 @@ void setup()
     digitalWrite(PROCESSOR_ENABLE, HIGH);
     delay(200);
     //sendMorseString("B");
-    digitalWrite(MOTORS_ENABLE,HIGH);
+    digitalWrite(MOTORS_ENABLE,HIGH); // Powers up the H-bridge
 
-}
+    
+    statusByte = 1;
+
+//    // Test the H-bridge
+//    delay(200);  // Give the power supply time to stabilize 
+////
+//    Serial.println("Ramping left motor up forward");
+//    for(int I = 0; I < 256; I++)
+//    {
+//      delay(10);
+//      driveLeftMotor(true,I);
+//    }
+//
+//    Serial.print("Ramping left motor down forward");
+//    for(int I = 255; I > -1; I--)
+//    {
+//      delay(10);
+//      driveLeftMotor(true,I);
+//    }
+//
+//
+//    // Now do it the other direction:
+//    
+//    Serial.print("Ramping left motor up backward");
+//    for(int I = 0; I < 256; I++)
+//    {
+//      delay(10);
+//      driveLeftMotor(false,I);
+//    }
+//
+//    
+//    Serial.print("Ramping left motor down backward");
+//    for(int I = 255; I > -1; I--)
+//    {
+//      delay(10);
+//      driveLeftMotor(false,I);
+//    }
+//
+//
+//
+//
+//    // Now do the same for the right motor
+//    
+//    Serial.print("Ramping right motor up forward");
+//    for(int I = 0; I < 256; I++)
+//    {
+//      delay(10);
+//      driveRightMotor(true,I);
+//    }
+//    
+//    Serial.print("Ramping right motor down forward");
+//    for(int I = 255; I > -1; I--)
+//    {
+//      delay(10);
+//      driveRightMotor(true,I);
+//    }
+//    
+//    Serial.print("Ramping right motor up backward");
+//    for(int I = 0; I < 256; I++)
+//    {
+//      delay(10);
+//      driveRightMotor(false,I);
+//    }
+//    
+//    Serial.print("Ramping right motor down backward");
+//    for(int I = 255; I > -1; I--)
+//    {
+//      delay(10);
+//      driveRightMotor(false,I);
+//    }
+
+    // Set up the encoder interrupts
+    // By default the external interrupts have higher priority than timer interrupts.  That is what I want.
+    attachInterrupt(digitalPinToInterrupt(LEFT_ENCODER_A), leftEncoderInterrupt, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(RIGHT_ENCODER_A), rightEncoderInterrupt, CHANGE);
+
+    // Set up the PID interrupt
+    leftEncoder = 0;
+    rightEncoder = 0;
+    lastLeftEncoder = 0; 
+    lastRightEncoder = 0;
+    
+    // The timer1 interrupt code was taken from http://www.8bit-era.cz/arduino-timer-interrupts-calculator.html
+
+//    // TIMER 1 for interrupt frequency 30.00120004800192 Hz:
+//    cli(); // stop interrupts
+//    TCCR1A = 0; // set entire TCCR1A register to 0
+//    TCCR1B = 0; // same for TCCR1B
+//    TCNT1  = 0; // initialize counter value to 0
+//    // set compare match register for 30.00120004800192 Hz increments
+//    OCR1A = 8332; // = 16000000 / (64 * 30.00120004800192) - 1 (must be <65536)
+//    // turn on CTC mode
+//    TCCR1B |= (1 << WGM12);
+//    // Set CS12, CS11 and CS10 bits for 64 prescaler
+//    TCCR1B |= (0 << CS12) | (1 << CS11) | (1 << CS10);
+//    // enable timer compare interrupt
+//    TIMSK1 |= (1 << OCIE1A);
+//    sei(); // allow interrupts
+
+
+    // TIMER 1 for interrupt frequency 50 Hz:
+    cli(); // stop interrupts
+    TCCR1A = 0; // set entire TCCR1A register to 0
+    TCCR1B = 0; // same for TCCR1B
+    TCNT1  = 0; // initialize counter value to 0
+    // set compare match register for 50 Hz increments
+    OCR1A = 39999; // = 16000000 / (8 * 50) - 1 (must be <65536)
+    // turn on CTC mode
+    TCCR1B |= (1 << WGM12);
+    // Set CS12, CS11 and CS10 bits for 8 prescaler
+    TCCR1B |= (0 << CS12) | (1 << CS11) | (0 << CS10);
+    // enable timer compare interrupt
+    TIMSK1 |= (1 << OCIE1A);
+    sei(); // allow interrupts
+//    
+//    // TIMER 1 for interrupt frequency 100 Hz:
+//    cli(); // stop interrupts
+//    TCCR1A = 0; // set entire TCCR1A register to 0
+//    TCCR1B = 0; // same for TCCR1B
+//    TCNT1  = 0; // initialize counter value to 0
+//    // set compare match register for 100 Hz increments
+//    OCR1A = 19999; // = 16000000 / (8 * 100) - 1 (must be <65536)
+//    // turn on CTC mode
+//    TCCR1B |= (1 << WGM12);
+//    // Set CS12, CS11 and CS10 bits for 8 prescaler
+//    TCCR1B |= (0 << CS12) | (1 << CS11) | (0 << CS10);
+//    // enable timer compare interrupt
+//    TIMSK1 |= (1 << OCIE1A);
+//    sei(); // allow interrupts
+
+//    // TIMER 1 for interrupt frequency 150.00375009375233 Hz:
+//    cli(); // stop interrupts
+//    TCCR1A = 0; // set entire TCCR1A register to 0
+//    TCCR1B = 0; // same for TCCR1B
+//    TCNT1  = 0; // initialize counter value to 0
+//    // set compare match register for 150.00375009375233 Hz increments
+//    OCR1A = 13332; // = 16000000 / (8 * 150.00375009375233) - 1 (must be <65536)
+//    // turn on CTC mode
+//    TCCR1B |= (1 << WGM12);
+//    // Set CS12, CS11 and CS10 bits for 8 prescaler
+//    TCCR1B |= (0 << CS12) | (1 << CS11) | (0 << CS10);
+//    // enable timer compare interrupt
+//    TIMSK1 |= (1 << OCIE1A);
+//    sei(); // allow interrupts
+        
+} // end of setup()
 
 
 
@@ -198,19 +351,52 @@ void loop()
 //  digitalWrite(LED, LOW);
 //  delay(500); 
 
-  // turn on the LED if the button is pushed, also test the hardware serial port
-  if(digitalRead(BUTTON))  
-  {
-    digitalWrite(LED, HIGH);
-    Serial.write("High");
-  }
-  else
-  {
-    digitalWrite(LED,LOW);
-    Serial.write("Low");
-  }
+//  // turn on the LED if the button is pushed, also test the hardware serial port
+//  if(digitalRead(BUTTON))  
+//  {
+//    digitalWrite(LED, HIGH);
+//    Serial.println("High");
+//  }
+//  else
+//  {
+//    digitalWrite(LED,LOW);
+//    Serial.println("Low");
+//  }
+
+  
 //   if(digitalRead(BUTTON))  //  Turn off the power if the button is pushed
 //    digitalWrite(MAIN_POWER_ENABLE, LOW);
+
+
+//// Verify that the battery reading rotine works properly
+//  byte batteryVoltage = readBattery();
+//  delay(100);
+
+
+
+//  Check to see if the encoders are working
+//  Uncomment only one of these at a time and rotate the appropriate motor.  If the LED blinks, it is working.
+//    digitalWrite(LED,digitalRead(LEFT_ENCODER_A)); // yes
+//    digitalWrite(LED,digitalRead(LEFT_ENCODER_B)); // no
+//    digitalWrite(LED,digitalRead(RIGHT_ENCODER_A)); //yes
+//    digitalWrite(LED,digitalRead(RIGHT_ENCODER_B)); // yes
+    
+  Serial.print("Left: ");
+  Serial.println(leftEncoder);
+  Serial.print("Right: ");
+  Serial.println(rightEncoder);
+  Serial.println(" ");
+  delay(100);
+
+  // Proportionally control the left motor using the right motor
+//  if(rightEncoder > 0)
+//  {
+//    driveLeftMotor(true,rightEncoder);
+//  }
+//  else
+//  {
+//    driveLeftMotor(false,abs(rightEncoder));
+//  }
 
 }
 
@@ -305,4 +491,317 @@ void outputDotOrDash(char dotOrDash)
   else // must be a -  
     beep(dashDelay, 2000);
   delay(dashDelay); //  space between beeps
+}
+
+
+
+
+
+byte readBattery()
+{ // outputs a value in the range of 0 to 100 which represents the roughly remaining capacity of the battery in percentage.ch tex
+  
+
+  /*
+   *  Due to the voltage divider that I am using:  200K and 47K, this multiplies the voltage by .1903
+   *  With 1024 counts for 5V, to get the voltage read, I need to multiply the counts by 5 and divide by 1024.
+   *  To get the actual voltage of the battery, I would want to multiply that by 1/.1903.  To get this voltage, 
+   *  it is roughly equivalent to multiplying by (1681/65536).  Of course, since we are dealing with only whole 
+   *  numbers, this doesn't leave much resolution so this program is working in voltage * 1000.  This makes the 
+   *  calculation be <analog reading> * (1681702/65536).  An unsigned long can handle the values in the range 
+   *   0-4,294,967,295.  1681702 * 1024 (the max reading) is 1,722,062,848.  This will fit within an unsigned long!
+   */
+  unsigned long batteryVoltage;
+  batteryVoltage = analogRead(VOLTAGE_DETECT); // gives me a value in the range of 0 to 1024.
+  Serial.print("ADC reading: ");
+  Serial.println(batteryVoltage);
+
+  
+  batteryVoltage *= 1681702;
+  batteryVoltage >>= 16; // Make sure that the calculation is fast rather than doing a real division.
+  Serial.print("voltage: ");
+  Serial.println(batteryVoltage);
+  
+  
+
+  // Calculate the rough remaining battery capacity based on a linear relationship to the voltage
+  batteryVoltage -= BATTERY_DEAD;
+
+  word batteryRange = BATTERY_FULL - BATTERY_DEAD;
+  // Since I am working in integer math, I can't just divide batteryVoltage by the battery range since I
+  // would get zero every time so I'm going to multiply the battery voltage by 100 first to give me a result in the range of
+  // 0 to ~100.
+  batteryVoltage *= 100;
+
+  batteryVoltage /= batteryRange;
+
+  if (batteryVoltage > 100) // It could be higher because I set the full voltage a little lower than what it really
+    batteryVoltage = 100;   // is when it is full.
+
+  return batteryVoltage;
+}
+
+
+void driveLeftMotor(bool forward, int speed)
+{// Drives the left motor in the direction specified relative to the robot
+// // The speed is adjusted upward because the motors on this robot don't start moving until about a value of 45.
+// // They stop moving at a value of about 32.
+//
+//  // adjust the speed and then limit to 255
+//  speed += 40;
+//  if(speed > 255)
+//    speed = 255;
+    
+  if(forward)
+  {
+    digitalWrite(LEFT_MOTOR_DIRECTION,LOW);
+    analogWrite(LEFT_MOTOR_PWM,speed);
+  }
+  else
+  {
+    digitalWrite(LEFT_MOTOR_DIRECTION,HIGH);
+    analogWrite(LEFT_MOTOR_PWM,255-speed);
+  }
+}
+
+
+
+
+void driveRightMotor(bool forward, int speed)
+{// Drives the right motor in the direction specified relative to the robot
+// // The speed is adjusted upward because the motors on this robot don't start moving until about a value of 45.
+// // They stop moving at a value of about 32.
+//
+//  // adjust the speed and then limit to 255
+//  speed += 40;
+//  if(speed > 255)
+//    speed = 255;
+    
+  if(forward)
+  {
+    digitalWrite(RIGHT_MOTOR_DIRECTION,HIGH);
+    analogWrite(RIGHT_MOTOR_PWM,255-speed);
+  }
+  else
+  {
+    digitalWrite(RIGHT_MOTOR_DIRECTION,LOW);
+    analogWrite(RIGHT_MOTOR_PWM,speed);
+  }
+}
+
+
+
+
+void leftEncoderInterrupt()
+{ /*  This interrupt happens when the A input of the left encoder changes. 
+      I'm not sure how to look at the assembly code generated by an Arduino sketch so I'm basing my timing information 
+      on information from http://www.gammon.com.au/interrupts
+      It is saying that using attachInterrupt() It takes 5.125 uS to just jump into and out of an interrupt.  That gives an interrupt
+      rate of 195,121 interrupts per second if nothing is done. Divide that by two encoders and I get 97560 interrupts per second per encoder.
+      Given that my encoders are 16 pulses per revolution and the gearbox is 120:1 I should have 1920 pulses per wheel revolution.  The motor has a 
+      no-load RPM of 160 at 6V.  This works out to 2.667 revolutions per second.  This gives a maximum pulse rate of 5120 pulses per second.  This is 
+      well within the maximum so I won't bother to optimize to make this routine faster.
+  */  
+  bool A = digitalRead(LEFT_ENCODER_A);
+  bool B = digitalRead(LEFT_ENCODER_B);
+
+  if(A)
+  {
+    if(B)
+      leftEncoder++;
+    else
+      leftEncoder--;   
+  }
+  else
+  {
+    if(B)
+      leftEncoder--;
+    else
+      leftEncoder++;
+  }
+}
+
+
+
+void rightEncoderInterrupt()
+{ /*  This interrupt happens when the A input of the left encoder changes. 
+  */  
+  bool A = digitalRead(RIGHT_ENCODER_A);
+  bool B = digitalRead(RIGHT_ENCODER_B);
+
+  if(A)
+  {
+    if(B)
+      rightEncoder++;
+    else
+      rightEncoder--;   
+  }
+  else
+  {
+    if(B)
+      rightEncoder--;
+    else
+      rightEncoder++;
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+ISR(TIMER1_COMPA_vect)
+{
+  // This ISR does the PID control of the motors.  
+
+  
+// This (commented out) chunk of code is to verify that the interrupt is happening at the rate that you expect.  
+// It should blink the LED at 1/2 of the interrupt rate (one interrupt turns it on and the next turns it off)
+/*
+  static bool lastState = false;
+  if(lastState)
+  {
+    lastState = false;
+    digitalWrite(LED,HIGH);
+  }
+  else
+  {
+    lastState = true;
+    digitalWrite(LED,LOW);
+  }
+*/
+
+/* There is a line of thinking that interrupt should be as short as possible and only set flags for the main program to address.
+    I'm not going to do that in this case because I worry about there being too much jitter in the timing of the PID loop, which 
+    could lead to instability in the motors' speeds. That worry may be unfounded though.  If this code is still here when you read
+    this then everything has worked out. It looks like the motor encoder interrupts happen rarely enough that the relative length of 
+    this routine won't cause it to miss any encoder ticks.
+
+    This function implements velocity PID as really just positional PID where the desired position is just incremented at each PID
+    loop.  For now, the velocity is fixed throughout the move.  I may change this to ramp up and down the velocity if I find that 
+    there is excessive wheel slip at the starts and stops.  
+
+    NOTE:  I used to work with the PIC processor, which doesn't have a multiply instruction so I was prepared to write a specialized 
+    multiply function to multiply a long and something shorter together but after looking around, apparently it only takes 12 cycles
+    to multiply two longs together on an AVR so there is no need to optimize.  This will be plenty fast as long as I am doing division 
+    using bit shifts.
+  
+  */
+
+  digitalWrite(LED,HIGH); // This is here so that I can use my logic analyzer or oscilliscope to see how long this takes to run 
+                                 // and what the actual interrupt rate is.  
+
+  static long desiredLeftEncoder = 0;
+  static long desiredRightEncoder = 0;
+  static int leftDifHistory[PID_HISTORY_DEPTH]= {0};
+  static int rightDifHistory[PID_HISTORY_DEPTH] = {0};
+
+  // FOR TESTING ONLY!
+  int leftDif = rightEncoder - leftEncoder; // This enables the left motor to mimic what the right motor is doing
+  
+  //int leftDif = desiredLeftEncoder - leftEncoder;       // diference between desired and actual position
+
+  
+  int rightDif = desiredRightEncoder - rightEncoder;    //  This could be up to about 512 counts on first interrupt after starting and 
+                                                        //  would probably go higher for a bit.  Let's say 1500 max.
+  
+  desiredRightEncoder += rightMotorTicksPerInterrupt;   // Increment the desired position
+  desiredLeftEncoder += leftMotorTicksPerInterrupt;
+
+
+  
+
+  // #####################
+  // P-term (Proportional)
+  // #####################
+  
+  long leftP = leftDif;
+  leftP *= P_TERM;  // Assuming a 1500 count difference, with P_TERM being 100, this would be a max of +-150,000
+  Serial.print("d: ");
+  Serial.print(leftDif);
+  Serial.print(" P: ");
+  Serial.print(leftP);
+  //leftP >>= PID_SHIFT_POSITIONS; // divide by 16
+  
+  long rightP = rightDif;
+  rightP *= P_TERM;  
+  //rightP >>= PID_SHIFT_POSITIONS; 
+
+  // Shuffle the new differences into the history 
+  for(int I = 0; I < PID_HISTORY_DEPTH - 1; I++)
+  {
+    leftDifHistory[I] = leftDifHistory[I+1];
+  }
+  leftDifHistory[PID_HISTORY_DEPTH - 1] = leftDif;
+
+
+  for(int I = 0; I < PID_HISTORY_DEPTH - 1; I++)
+  {
+    rightDifHistory[I] = rightDifHistory[I+1];
+  }
+  rightDifHistory[PID_HISTORY_DEPTH - 1] = rightDif;
+
+  
+  // #################
+  // I-term (Integral)
+  // #################
+  
+  // Sum up this and previous differences
+  //long leftI = leftDif + leftDifHistory[0] + leftDifHistory[1] + leftDifHistory[2] + leftDifHistory[3];
+  long leftI = 0;
+  for(int I = 0; I < PID_HISTORY_DEPTH; I++)
+  {
+    leftI += leftDifHistory[I];  
+  }
+  
+  leftI *= I_TERM;
+  //leftI >>= PID_SHIFT_POSITIONS;
+
+  //long rightI = rightDif + rightDifHistory[0] + rightDifHistory[1] + rightDifHistory[2] + rightDifHistory[3];
+  long rightI = 0;
+  for(int I = 0; I < PID_HISTORY_DEPTH; I++)
+  {
+    rightI += rightDifHistory[I];  
+  }
+  
+  rightI *= I_TERM;
+  //rightI >>= PID_SHIFT_POSITIONS;
+
+
+  //######################
+  // D-term (Differential)
+  //######################
+  long leftD = leftDifHistory[PID_HISTORY_DEPTH-1] - leftDifHistory[PID_HISTORY_DEPTH-2];
+  leftD *= D_TERM;
+  //leftD >>= PID_SHIFT_POSITIONS;
+
+  long rightD = rightDifHistory[PID_HISTORY_DEPTH-1] - rightDifHistory[PID_HISTORY_DEPTH-2];
+  rightD *= D_TERM;
+  //rightD >>= PID_SHIFT_POSITIONS;
+
+
+
+
+
+  // Calculate the final PWM values and motor directions
+  long temp = leftP + leftI + leftD;
+  bool leftDir = temp < 0;
+  byte leftPWM = min(255,abs(temp));
+
+  
+  temp = rightP + rightI + rightD;
+  bool rightDir = temp < 0;
+  byte rightPWM = min(255, abs(temp));
+
+  // Set the PWM values and directions.
+
+  driveLeftMotor(leftDir,leftPWM);
+  //driveRightMotor(rightDir, rightPWM);   // This is commented out for testing only.  
+
+    
+  digitalWrite(LED,LOW); // so that I can see how long this interrupt took
 }
