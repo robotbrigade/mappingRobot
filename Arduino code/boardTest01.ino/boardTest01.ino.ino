@@ -81,26 +81,51 @@
 #define TICKS_PER_METER       10000   // TODO:   Figure out the correct value for this (1920 pulses per wheel revolution)
 
 
-                                     // 100Hz rate
-#define P_TERM                4   // 4                
-#define I_TERM                3    // 3 
-#define D_TERM                35   // 35
+//                                     // 100Hz rate
+//#define P_TERM                4   // 4                
+//#define I_TERM                3    // 3 
+//#define D_TERM                35   // 35
 
-                                   // 50Hz rate // These ones are pretty good
-#define P_TERM                4    // 4    60 allows up to 4 counts difference
-#define I_TERM                3    // 3 
-#define D_TERM                35   // 35
+
 
 //                                   // 30Hz rate 
 //#define P_TERM                20    // 4
 //#define I_TERM                0    // 3 
 //#define D_TERM                85   // 35
 
-#define PID_HISTORY_DEPTH     2
+      
+                                   
+//// 50Hz rate no shifting after the multiplication -  These ones are pretty good
+//#define P_TERM                4    
+//#define I_TERM                3    
+//#define D_TERM                35   
+
+//// 50Hz rate with shifting after multiplication
+//#define P_TERM                90     //  90 // These values allow about 16 ticks in error
+//#define I_TERM                45     //  45
+//#define D_TERM                450    // 450
+
+//// 50Hz rate with shifting after multiplication
+//#define P_TERM                110     //  90 // These values allow about 16 ticks in error
+//#define I_TERM                60     //  45
+//#define D_TERM                900    // 450
+
+//// 50Hz rate with shifting after multiplication
+//#define P_TERM                80    //  90 // These values allow about 16 ticks in error
+//#define I_TERM                0      //  45
+//#define D_TERM                800    // 450
+
+// 50Hz rate with shifting after multiplication
+#define P_TERM                0    //  90 // These values allow about 16 ticks in error
+#define I_TERM                50      //  45
+#define D_TERM                800    // 450
+
+
+#define PID_HISTORY_DEPTH     3
 
 
 
-//#define PID_SHIFT_POSITIONS   6     // effectively divide the PID terms by 64
+#define PID_SHIFT_POSITIONS   4     // effectively divide the PID terms by 16
 
 
 // Stuff relating to Morse code:
@@ -176,22 +201,22 @@ void setup()
     // Set up the USB serial port
     Serial.begin(2000000);
 
-//    beep(100,16000);
-//    beep(100,8000);
-//    beep(100,4000);
-//    beep(100,2000);
-//    beep(100,1000);
-//    beep(100,500);
-//    beep(100,250);
-//    beep(100,125);
-    beep(100,62);
+    beep(50,16000);
+    beep(50,8000);
+    beep(50,4000);
+    beep(50,2000);
+    beep(50,1000);
+    beep(50,500);
+    beep(50,250);
+    beep(50,125);
+    beep(50,62);
 
-    delay(300);
-    //sendMorseString("A");
-    digitalWrite(PROCESSOR_ENABLE, HIGH);
-    delay(200);
-    //sendMorseString("B");
-    digitalWrite(MOTORS_ENABLE,HIGH); // Powers up the H-bridge
+//    //delay(300);
+//    sendMorseString("A");
+//    digitalWrite(PROCESSOR_ENABLE, HIGH);
+//    //delay(200);
+//    sendMorseString("B");
+//    digitalWrite(MOTORS_ENABLE,HIGH); // Powers up the H-bridge
 
     
     statusByte = 1;
@@ -337,6 +362,10 @@ void setup()
 //    // enable timer compare interrupt
 //    TIMSK1 |= (1 << OCIE1A);
 //    sei(); // allow interrupts
+
+
+//  leftMotorTicksPerInterrupt = 1;
+//  rightMotorTicksPerInterrupt = 5;
         
 } // end of setup()
 
@@ -398,6 +427,26 @@ void loop()
 //    driveLeftMotor(false,abs(rightEncoder));
 //  }
 
+
+
+//  long startTime = millis();
+//  long endTime = startTime + 1000;
+//  Serial.print("Start: ");
+//  Serial.println(startTime);
+//  Serial.print("End: ");
+//  Serial.println(endTime);
+//
+//    
+//  while(millis() < endTime)
+//    {
+//      Serial.println(millis());
+//    }
+//  // Now disable interrupts
+//  cli(); // stop interrupts
+//  while(1)
+//  {
+//    
+//  }
 }
 
 
@@ -711,7 +760,11 @@ ISR(TIMER1_COMPA_vect)
   
   desiredRightEncoder += rightMotorTicksPerInterrupt;   // Increment the desired position
   desiredLeftEncoder += leftMotorTicksPerInterrupt;
-
+//
+//  Serial.print(desiredLeftEncoder);
+//  Serial.print(" ");
+//  Serial.println(desiredRightEncoder);
+  
 
   
 
@@ -720,16 +773,13 @@ ISR(TIMER1_COMPA_vect)
   // #####################
   
   long leftP = leftDif;
-  leftP *= P_TERM;  // Assuming a 1500 count difference, with P_TERM being 100, this would be a max of +-150,000
-  Serial.print("d: ");
-  Serial.print(leftDif);
-  Serial.print(" P: ");
-  Serial.print(leftP);
-  //leftP >>= PID_SHIFT_POSITIONS; // divide by 16
+  leftP *= P_TERM;  
+  leftP >>= PID_SHIFT_POSITIONS; 
   
   long rightP = rightDif;
   rightP *= P_TERM;  
-  //rightP >>= PID_SHIFT_POSITIONS; 
+  rightP >>= PID_SHIFT_POSITIONS;
+
 
   // Shuffle the new differences into the history 
   for(int I = 0; I < PID_HISTORY_DEPTH - 1; I++)
@@ -751,7 +801,6 @@ ISR(TIMER1_COMPA_vect)
   // #################
   
   // Sum up this and previous differences
-  //long leftI = leftDif + leftDifHistory[0] + leftDifHistory[1] + leftDifHistory[2] + leftDifHistory[3];
   long leftI = 0;
   for(int I = 0; I < PID_HISTORY_DEPTH; I++)
   {
@@ -759,9 +808,9 @@ ISR(TIMER1_COMPA_vect)
   }
   
   leftI *= I_TERM;
-  //leftI >>= PID_SHIFT_POSITIONS;
+  leftI >>= PID_SHIFT_POSITIONS;
 
-  //long rightI = rightDif + rightDifHistory[0] + rightDifHistory[1] + rightDifHistory[2] + rightDifHistory[3];
+
   long rightI = 0;
   for(int I = 0; I < PID_HISTORY_DEPTH; I++)
   {
@@ -769,7 +818,7 @@ ISR(TIMER1_COMPA_vect)
   }
   
   rightI *= I_TERM;
-  //rightI >>= PID_SHIFT_POSITIONS;
+  rightI >>= PID_SHIFT_POSITIONS;
 
 
   //######################
@@ -777,11 +826,11 @@ ISR(TIMER1_COMPA_vect)
   //######################
   long leftD = leftDifHistory[PID_HISTORY_DEPTH-1] - leftDifHistory[PID_HISTORY_DEPTH-2];
   leftD *= D_TERM;
-  //leftD >>= PID_SHIFT_POSITIONS;
+  leftD >>= PID_SHIFT_POSITIONS;
 
   long rightD = rightDifHistory[PID_HISTORY_DEPTH-1] - rightDifHistory[PID_HISTORY_DEPTH-2];
   rightD *= D_TERM;
-  //rightD >>= PID_SHIFT_POSITIONS;
+  rightD >>= PID_SHIFT_POSITIONS;
 
 
 
