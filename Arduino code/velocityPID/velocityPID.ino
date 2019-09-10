@@ -78,24 +78,19 @@
 // queue depth is how many messages can be waiting for the main program at any given time.
 #define QUEUE_DEPTH           3
 
-#define TICKS_PER_METER       10000   // TODO:   Figure out the correct value for this (1920 pulses per wheel revolution)
-
+#define TICKS_PER_METER       10185   // 1920 pulses per wheel revolution
+                                      // 188.5mm/revolution with a 60mm wheel
+                                      // 5.30 revolutions per meter
 
 
 
 
 
 // PID control values
-#define P_TERM                2 // 2     // 2 and 3 gets the velocity there in about 5 cycles
+#define P_TERM                1 // 2     // 2 and 3 gets the velocity there in about 5 cycles
 #define I_TERM                0     
 #define D_TERM                1 // 3   
 
-
-#define PID_HISTORY_DEPTH     3
-
-
-
-#define PID_SHIFT_POSITIONS   4     // effectively divide the PID terms by 16
 
 
 // Stuff relating to Morse code:
@@ -120,11 +115,10 @@ char* numbers[] =
 
 
 // for motor control
-//int leftMotorTicksPerInterrupt = 0;
-//int rightMotorTicksPerInterrupt = 0;
-//unsigned int remainingInterruptsToDriveMotors = 0;
+unsigned int interruptsLeft = 0; // Used for determining how far to drive
 int desiredLeftVelocity = 0;
 int desiredRightVelocity = 0;
+bool inMotion = false;
 
 
 // For keeping track of position
@@ -133,6 +127,8 @@ long rightEncoder;
 int  leftEncoderVelocity; // This is reset every interrupt and is used for PID calculations
 int  rightEncoderVelocity;
 
+
+// Used by the serial routines for commuincating with the main processor
 long lastLeftEncoder; // since it was last checked via serial command  TODO:  Change interrupt to use a local version
 long lastRightEncoder;
 
@@ -141,7 +137,7 @@ byte statusByte;  // for sending status messages
 bool thereIsAnUserMessage;
 byte userMessageSize;
 byte currentUserMessageCharacter;
-
+byte ignore;
 
 
 
@@ -202,8 +198,7 @@ void setup()
   lastLeftEncoder = 0; 
   lastRightEncoder = 0;
   
-    // The timer1 interrupt code was taken from http://www.8bit-era.cz/arduino-timer-interrupts-calculator.html
-
+  // The timer1 interrupt code was taken from http://www.8bit-era.cz/arduino-timer-interrupts-calculator.html
   // I'm not sure if it is necessary to do this because the Arduino is already using an interrupt at 1000Hz for millis()
   
   // TIMER 0 for interrupt frequency 1000 Hz:
@@ -220,96 +215,96 @@ void setup()
   // enable timer compare interrupt
   TIMSK0 |= (1 << OCIE0A);
   sei(); // allow interrupts
-
-
-//  leftMotorTicksPerInterrupt = 1;
-//  rightMotorTicksPerInterrupt = 5;
         
 } // end of setup()
 
 
 
 
+
+
+
 void loop()
-{
-
-//  digitalWrite(LED, HIGH); // blink forever
-//  delay(500);
-//  digitalWrite(LED, LOW);
-//  delay(500); 
-
-//  // turn on the LED if the button is pushed, also test the hardware serial port
-//  if(digitalRead(BUTTON))  
-//  {
-//    digitalWrite(LED, HIGH);
-//    Serial.println("High");
-//  }
-//  else
-//  {
-//    digitalWrite(LED,LOW);
-//    Serial.println("Low");
-//  }
-
-  
-//   if(digitalRead(BUTTON))  //  Turn off the power if the button is pushed
-//    digitalWrite(MAIN_POWER_ENABLE, LOW);
-
-
-//// Verify that the battery reading rotine works properly
-//  byte batteryVoltage = readBattery();
-//  delay(100);
-
-
-
-//  Check to see if the encoders are working
-//  Uncomment only one of these at a time and rotate the appropriate motor.  If the LED blinks, it is working.
-//    digitalWrite(LED,digitalRead(LEFT_ENCODER_A)); // yes
-//    digitalWrite(LED,digitalRead(LEFT_ENCODER_B)); // no
-//    digitalWrite(LED,digitalRead(RIGHT_ENCODER_A)); //yes
-//    digitalWrite(LED,digitalRead(RIGHT_ENCODER_B)); // yes
-    
+{  
 //  Serial.print("Left: ");
 //  Serial.println(leftEncoder);
 //  Serial.print("Right: ");
 //  Serial.println(rightEncoder);
 //  Serial.println(" ");
-  delay(100);
 
-  // Proportionally control the left motor using the right motor
-  desiredLeftVelocity = constrain(rightEncoder, -150, 150);
-
-//  if(rightEncoder > 0)
-//  {
-//    //analogWrite(LEFT_MOTOR_PWM,min(rightEncoder,255));
-//    //driveLeftMotor(true,min(rightEncoder,255));
-//  }
-//  else
-//  {
-//    //analogWrite(LEFT_MOTOR_PWM,min(rightEncoder,255));
-//    //driveLeftMotor(false,min(abs(rightEncoder),255));
-//  }
+  // I want to drive 5000 ticks at a velocity of 30 ticks per interrupt
+  // 5000/30 = 166.666
 
 
+//  // Control the left motor using the right motor using the interrupt routine.
+//  // Note that the interrupt routine needs to have the call to driveRightMotor commented out.
+//  desiredLeftVelocity = constrain(rightEncoder, -150,150);
+//  interruptsLeft = 1;
+//  inMotion = true;
 
-//  long startTime = millis();
-//  long endTime = startTime + 1000;
-//  Serial.print("Start: ");
-//  Serial.println(startTime);
-//  Serial.print("End: ");
-//  Serial.println(endTime);
-//
-//    
-//  while(millis() < endTime)
-//    {
-//      Serial.println(millis());
-//    }
-//  // Now disable interrupts
-//  cli(); // stop interrupts
-//  while(1)
-//  {
-//    
-//  }
+//  // Control the right motor using the left motor using the interrupt routine.
+//  // Note that the interrupt routine needs to have the call to driveLeftMotor commented out.
+//  desiredRightVelocity = constrain(leftEncoder, -150,150);
+//  interruptsLeft = 1;
+//  inMotion = true;
+
+
+  
+
+  desiredLeftVelocity = 40;
+  desiredRightVelocity = 30;
+  int desiredTicks = 5000;
+  interruptsLeft = desiredTicks/desiredLeftVelocity;
+  inMotion = true;
+
+  Serial.println("PART A");
+  while(inMotion == true)
+    {
+      //Serial.println("A"); // Works
+      //ignore++; // doesn't work
+      digitalWrite(LED,HIGH); // Works
+    }
+
+  digitalWrite(LED,LOW);
+  beep(100,1600);
+  delay(300);
+
+
+
+  
+  desiredLeftVelocity = -20;
+  desiredRightVelocity = -10;
+  interruptsLeft = desiredTicks/abs(desiredLeftVelocity);
+
+  inMotion = true;
+
+  Serial.println("PART B");
+  while(inMotion == true)
+    { // This While loop needs something in it in order for it to kick out of the loop!
+      //Serial.println("B");
+      digitalWrite(LED,HIGH); // TODO:  Find some other instruction that doesn't get optimized away by the compiler
+    }
+
+  digitalWrite(LED,LOW);
+  beep(100,1200);
+
+
+
+
+// Control using analogWrite rather than the interrrupt routine.
+//  // Proportionally control the left motor using the right motor
+//  driveLeftMotor(true,constrain(rightEncoder, 0, 255));
+//  Serial.println(rightEncoder);
+
+//  // Proportionally control the right motor using the left motor
+//  driveRightMotor(true,constrain(leftEncoder, 0, 255));
+//  Serial.println(leftEncoder);
+
 }
+
+
+
+
 
 
 
@@ -460,14 +455,11 @@ void driveLeftMotor(bool forward, int speed)
   
   
   // adjust the speed and then limit to 255
-  speed += 35;
+  if(speed != 0) // Allow it to truly stop
+    speed += 35;
+    
   if(speed > 255)
     speed = 255;
-
-//  Serial.print(rightEncoder);
-//  Serial.print(" ");
-//  Serial.println(speed);
-
   
   if(forward)
   {
@@ -490,7 +482,8 @@ void driveRightMotor(bool forward, int speed)
 // // They stop moving at a value of about 32.
 //
   // adjust the speed and then limit to 255
-  speed += 35;
+  if(speed != 0) // Allow it to truly stop
+    speed += 35;
   if(speed > 255)
     speed = 255;
     
@@ -601,57 +594,105 @@ void rightEncoderInterrupt()
 ISR(TIMER0_COMPA_vect)
 {
   static byte interruptCount = 0;
+  
   static int leftThrottle = 0;
+  static int rightThrottle = 0;
+  
   static int lastLeftPterm = 0;
+  static int lastRightPterm = 0;
+  
   
   
 
   // This interrupt is happening at approximately 1000 Hz. That is too fast for my needs.  
-  // I made it this way in the hopes that millis will still work and also because using timer 1 to get my actual
-  // desired interrupt rate caused problems with PWM.  
+  // I made it this way so that millis will still work and also because using timer 1 to get my actual
+  // desired interrupt rate caused problems with PWM.  Both PWM pins use timer1 as their PWM clock source.
+  
+  if(inMotion == false)
+  {
+    driveLeftMotor(true,0);
+    driveRightMotor(true,0);
+  }
+  
+  
   if(++interruptCount == 50)
     {
-      digitalWrite(LED,HIGH);
-      interruptCount = 0; 
+      //digitalWrite(LED,HIGH);
+      if(inMotion)
+      {
+        
+        interruptCount = 0; 
+  
+        // This portion of the code runs at about 20Hz
+        // At 30 Hz, I can get encoder differences of up to about +-170 at 6V
+        int actualLeftVelocity = leftEncoderVelocity;
+        int actualRightVelocity = rightEncoderVelocity;
+        
+        leftEncoderVelocity = 0;
+        rightEncoderVelocity = 0;
+  
+  
+        Serial.print(actualRightVelocity);
+        Serial.print(" ");
+        Serial.println(actualLeftVelocity);
+  
+        
+        // #################
+        // Proportional term
+        // #################
+        int Pl = actualLeftVelocity - desiredLeftVelocity;
+        int Pr = actualRightVelocity - desiredRightVelocity;
+        
+  
+        // #################
+        // Differential term
+        // #################
+        int Dl = Pl - lastLeftPterm;
+        lastLeftPterm = Pl;
+   
+        int Dr = Pr - lastRightPterm;
+        lastRightPterm = Pr;
+  
+  
+        // Adjust things by their scale factors
+        Pl *= P_TERM;
+        Pr *= P_TERM;
+        
+        Dl *= D_TERM;
+        Dr *= D_TERM;
+  
+        // Adjust the throttle
+        leftThrottle += Pl;
+        leftThrottle += Dl;
 
-      // This portion of the code runs at about 20Hz
-      // At 30 Hz, I can get encoder differences of up to about +-170 at 6V
-      int actualLeftVelocity = leftEncoderVelocity;
-      leftEncoderVelocity = 0;
+        rightThrottle -= Pr; // This is different from the left motor.  I may have the wires to the 
+        rightThrottle -= Dr; // motor backwards or something... 
 
+        leftThrottle = constrain(leftThrottle,-255,255);
+        rightThrottle = constrain(rightThrottle,-255, 255);
 
-      
+        
+        if(leftThrottle > 0)
+          driveLeftMotor(true,min(leftThrottle,255));
+        else
+          driveLeftMotor(false,min(abs(leftThrottle),255));
 
-      Serial.print(actualLeftVelocity);
-      Serial.print(" ");
-      Serial.println(rightEncoder);
+        if(rightThrottle > 0)
+          driveRightMotor(true,min(rightThrottle,255));
+        else
+          driveRightMotor(false,min(abs(rightThrottle),255));
 
-      
-      // #################
-      // Proportional term
-      // #################
-      int P = actualLeftVelocity - desiredLeftVelocity;
-      
+        
+          
 
-      // #################
-      // Differential term
-      // #################
-      int D = P - lastLeftPterm;
-      lastLeftPterm = P;
-
-
-      // Adjust things by their scale factors
-      P *= P_TERM;
-      D *= D_TERM;
-
-      // Adjust the throttle
-      leftThrottle += P;
-      leftThrottle += D;
-      if(leftThrottle > 0)
-        driveLeftMotor(true,min(leftThrottle,255));
-      else
-        driveLeftMotor(false,min(abs(leftThrottle),255));
+        // Determine if it should keep going  
+        interruptsLeft--;
+        if(interruptsLeft == 0)
+          {
+          inMotion = false;
+          }
+      } // end of if inMotion
     }
 
-  digitalWrite(LED,LOW);
+  //digitalWrite(LED,LOW);
 }
