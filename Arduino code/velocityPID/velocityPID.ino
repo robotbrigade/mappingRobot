@@ -74,71 +74,46 @@
 #define BATTERY_FULL          20200
 #define BATTERY_DEAD          15000
 
-#define SERIAL_BUFFER_SIZE    8
-// queue depth is how many messages can be waiting for the main program at any given time.
-#define QUEUE_DEPTH           3
-
-#define TICKS_PER_METER       10185   // 1920 pulses per wheel revolution
-                                      // 188.5mm/revolution with a 60mm wheel
-                                      // 5.30 revolutions per meter
+//#define SERIAL_BUFFER_SIZE    8
+//// queue depth is how many messages can be waiting for the main program at any given time.
+//#define QUEUE_DEPTH           3
 
 
 
 
-
-// PID control values
-#define P_TERM                1 // 2     // 2 and 3 gets the velocity there in about 5 cycles
-#define I_TERM                0     
+//
+// PID control values (yes, I did play with the values but this ended up working good enough...)
+// You may want to play with them more if you need to make more rapid starts and stops to avoid oscillation.  
+#define P_TERM                1 // 2       
 #define D_TERM                1 // 3   
 
-
-
-// Stuff relating to Morse code:
-#define DOT_DELAY            30 // for morse code
-
-
-char* letters[] = 
-{
-  ".-", "-...", "-.-.", "-..", ".", "..-.", "--.", "....", "..", // A-I
-  ".---", "-.-", ".-..", "--", "-.", "---", ".--.", "--.-", ".-.", // J-R
-  "...", "-", "..-", "...-", ".--", "-..-", "-.--", "--.." // S-Z
-};
-
-char* numbers[] = 
-{
-  "-----", ".----", "..---", "...--", "....-", ".....",
-  "-....", "--...", "---..", "----."
-};
 
 
 
 
 
 // for motor control
-unsigned int interruptsLeft = 0; // Used for determining how far to drive
-int desiredLeftVelocity = 0;
+//unsigned int interruptsLeft = 0; // Used for determining how far to drive
+int desiredLeftVelocity = 0;   // Used by the PID interrupt routine.  Don't write to these directly.  Let setupMotion() write to them.
 int desiredRightVelocity = 0;
-bool inMotion = false;
 
+
+// For communicating with the PID interrupt
+int rampingUpTimeslotsGlobal;
+int rampingDownTimeslotsGlobal;
+int constantTimeslotsGlobal;
+int leftMaxVelocityGlobal;
+int rightMaxVelocityGlobal;
+int leftAccelerationGlobal;
+int rightAccelerationGlobal;
+volatile bool inMotion = false; // Volatile so that the compiler doesn't optimize away loops waiting for it to change.
+ 
 
 // For keeping track of position
 long leftEncoder;   // Actual position of the encoder
 long rightEncoder; 
 int  leftEncoderVelocity; // This is reset every interrupt and is used for PID calculations
 int  rightEncoderVelocity;
-
-
-// Used by the serial routines for commuincating with the main processor
-long lastLeftEncoder; // since it was last checked via serial command  TODO:  Change interrupt to use a local version
-long lastRightEncoder;
-
-byte statusByte;  // for sending status messages
-
-bool thereIsAnUserMessage;
-byte userMessageSize;
-byte currentUserMessageCharacter;
-byte ignore;
-
 
 
 void setup()
@@ -184,38 +159,7 @@ void setup()
   beep(50,125);
   beep(50,62);
 
-  statusByte = 1;
-
-
-  // Set up the encoder interrupts
-  // By default the external interrupts have higher priority than timer interrupts.  That is what I want.
-  attachInterrupt(digitalPinToInterrupt(LEFT_ENCODER_A), leftEncoderInterrupt, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(RIGHT_ENCODER_A), rightEncoderInterrupt, CHANGE);
-
-  // Set up the PID interrupt
-  leftEncoder = 0;
-  rightEncoder = 0;
-  lastLeftEncoder = 0; 
-  lastRightEncoder = 0;
-  
-  // The timer1 interrupt code was taken from http://www.8bit-era.cz/arduino-timer-interrupts-calculator.html
-  // I'm not sure if it is necessary to do this because the Arduino is already using an interrupt at 1000Hz for millis()
-  
-  // TIMER 0 for interrupt frequency 1000 Hz:
-  cli(); // stop interrupts
-  TCCR0A = 0; // set entire TCCR0A register to 0
-  TCCR0B = 0; // same for TCCR0B
-  TCNT0  = 0; // initialize counter value to 0
-  // set compare match register for 1000 Hz increments
-  OCR0A = 249; // = 16000000 / (64 * 1000) - 1 (must be <256)
-  // turn on CTC mode
-  TCCR0B |= (1 << WGM01);
-  // Set CS02, CS01 and CS00 bits for 64 prescaler
-  TCCR0B |= (0 << CS02) | (1 << CS01) | (1 << CS00);
-  // enable timer compare interrupt
-  TIMSK0 |= (1 << OCIE0A);
-  sei(); // allow interrupts
-        
+  setupMotorStuff();
 } // end of setup()
 
 
@@ -226,178 +170,27 @@ void setup()
 
 void loop()
 {  
-//  Serial.print("Left: ");
-//  Serial.println(leftEncoder);
-//  Serial.print("Right: ");
-//  Serial.println(rightEncoder);
-//  Serial.println(" ");
 
-  // I want to drive 5000 ticks at a velocity of 30 ticks per interrupt
-  // 5000/30 = 166.666
-
-
-//  // Control the left motor using the right motor using the interrupt routine.
-//  // Note that the interrupt routine needs to have the call to driveRightMotor commented out.
-//  desiredLeftVelocity = constrain(rightEncoder, -150,150);
-//  interruptsLeft = 1;
-//  inMotion = true;
-
-//  // Control the right motor using the left motor using the interrupt routine.
-//  // Note that the interrupt routine needs to have the call to driveLeftMotor commented out.
-//  desiredRightVelocity = constrain(leftEncoder, -150,150);
-//  interruptsLeft = 1;
-//  inMotion = true;
-
-
-  
-
-  desiredLeftVelocity = 40;
-  desiredRightVelocity = 30;
-  int desiredTicks = 5000;
-  interruptsLeft = desiredTicks/desiredLeftVelocity;
-  inMotion = true;
-
-  Serial.println("PART A");
+  // Control the motors with ramping
+  setupMotion(100, 300, 80, 8000);
   while(inMotion == true)
-    {
-      //Serial.println("A"); // Works
-      //ignore++; // doesn't work
-      digitalWrite(LED,HIGH); // Works
+    { // Just hang out while the movement happens
     }
-
-  digitalWrite(LED,LOW);
-  beep(100,1600);
-  delay(300);
-
+  Serial.println("A");
 
 
   
-  desiredLeftVelocity = -20;
-  desiredRightVelocity = -10;
-  interruptsLeft = desiredTicks/abs(desiredLeftVelocity);
-
-  inMotion = true;
-
-  Serial.println("PART B");
+  setupMotion(-20, -300, 500, 3000);
   while(inMotion == true)
-    { // This While loop needs something in it in order for it to kick out of the loop!
-      //Serial.println("B");
-      digitalWrite(LED,HIGH); // TODO:  Find some other instruction that doesn't get optimized away by the compiler
+    { // Just hang out while the movement happens
     }
-
-  digitalWrite(LED,LOW);
-  beep(100,1200);
-
-
-
-
-// Control using analogWrite rather than the interrrupt routine.
-//  // Proportionally control the left motor using the right motor
-//  driveLeftMotor(true,constrain(rightEncoder, 0, 255));
-//  Serial.println(rightEncoder);
-
-//  // Proportionally control the right motor using the left motor
-//  driveRightMotor(true,constrain(leftEncoder, 0, 255));
-//  Serial.println(leftEncoder);
-
+  Serial.println("B");
 }
 
 
 
 
 
-
-
-
-void beep(unsigned int duration, int frequency)
-{ // beeps for duration milliseconds at the desired frequency
-
-  // Calculate the delay needed for the desired frequency
-  int delayInMicroseconds = 1000000 / frequency;
-
-  unsigned long numberOfCycles = duration; // I'm breaking this up to avoid math issues that give incorrect results
-  numberOfCycles *= 1000;
-  numberOfCycles /= delayInMicroseconds;
-
-  bool pinState = 0;
-  
-  for(int I = 0; I < numberOfCycles; I++)
-  {
-    if(pinState)
-      digitalWrite(BEEPER, LOW);
-    else
-      digitalWrite(BEEPER,HIGH);
-    pinState = !pinState;
-
-    delayMicroseconds(delayInMicroseconds);
-  }
-
-  // Set the BEEPER pin LOW to conserve power
-  digitalWrite(BEEPER, LOW);
-}
-
-
-
-void sendMorseString(char* theString)
-{ // Sends letters, numbers and spaces only.  Punctuation or other characters will be ignored.
-  // This is used at startup only.  During normal operation, characters are sent one at a time between successive loop()'s.
-  char ch;
-  int I = 0;
-  while (theString[I] != NULL)
-  {
-    ch = theString[I];
-    I++;
-
-    if (ch >= 'a' && ch <= 'z')
-    {
-      sendMorseCharacter(letters[ch - 'a']);
-    }
-
-    else if (ch >= 'A' && ch <= 'Z')
-    {
-      sendMorseCharacter(letters[ch - 'A']);
-    }
-
-    else if (ch >= '0' && ch <= '9')
-    {
-      sendMorseCharacter(numbers[ch - '0']);
-    }
-
-    else if (ch == ' ') // SPACE
-    {
-      int temp = DOT_DELAY;
-      temp *= 6; // Was 4
-      delay(temp);
-    }
-  }
-}
-
-void sendMorseCharacter(char* sequence)
-{
-  int I = 0;
-  while (sequence[I] != NULL)
-  {
-    outputDotOrDash(sequence[I]);
-    I++;
-  }
-  int temp = DOT_DELAY;
-  temp *= 6;
-  delay(temp); // space between characters
-}
-
-
-
-void outputDotOrDash(char dotOrDash)
-{
-  int dashDelay = DOT_DELAY;
-  dashDelay *= 3;
-  
-  if (dotOrDash == '.')
-    beep(DOT_DELAY, 2000);
-  else // must be a -  
-    beep(dashDelay, 2000);
-  delay(dashDelay); //  space between beeps
-}
 
 
 
@@ -444,255 +237,4 @@ byte readBattery()
     batteryVoltage = 100;   // is when it is full.
 
   return batteryVoltage;
-}
-
-
-void driveLeftMotor(bool forward, int speed)
-{// Drives the left motor in the direction specified relative to the robot
-// // The speed is adjusted upward because the motors on this robot don't start moving until about a value of 35.
-// // They stop moving at a value of about 32.
-//
-  
-  
-  // adjust the speed and then limit to 255
-  if(speed != 0) // Allow it to truly stop
-    speed += 35;
-    
-  if(speed > 255)
-    speed = 255;
-  
-  if(forward)
-  {
-    digitalWrite(LEFT_MOTOR_DIRECTION,LOW);
-    analogWrite(LEFT_MOTOR_PWM,speed);
-  }
-  else
-  {
-    digitalWrite(LEFT_MOTOR_DIRECTION,HIGH);
-    analogWrite(LEFT_MOTOR_PWM,255-speed);
-  }
-}
-
-
-
-
-void driveRightMotor(bool forward, int speed)
-{// Drives the right motor in the direction specified relative to the robot
-// // The speed is adjusted upward because the motors on this robot don't start moving until about a value of 35.
-// // They stop moving at a value of about 32.
-//
-  // adjust the speed and then limit to 255
-  if(speed != 0) // Allow it to truly stop
-    speed += 35;
-  if(speed > 255)
-    speed = 255;
-    
-  if(forward)
-  {
-    digitalWrite(RIGHT_MOTOR_DIRECTION,HIGH);
-    analogWrite(RIGHT_MOTOR_PWM,255-speed);
-  }
-  else
-  {
-    digitalWrite(RIGHT_MOTOR_DIRECTION,LOW);
-    analogWrite(RIGHT_MOTOR_PWM,speed);
-  }
-}
-
-
-
-
-void leftEncoderInterrupt()
-{ /*  This interrupt happens when the A input of the left encoder changes. 
-      I'm not sure how to look at the assembly code generated by an Arduino sketch so I'm basing my timing information 
-      on information from http://www.gammon.com.au/interrupts
-      It is saying that using attachInterrupt() It takes 5.125 uS to just jump into and out of an interrupt.  That gives an interrupt
-      rate of 195,121 interrupts per second if nothing is done. Divide that by two encoders and I get 97560 interrupts per second per encoder.
-      Given that my encoders are 16 pulses per revolution and the gearbox is 120:1 I should have 1920 pulses per wheel revolution.  The motor has a 
-      no-load RPM of 160 at 6V.  This works out to 2.667 revolutions per second.  This gives a maximum pulse rate of 5120 pulses per second.  This is 
-      well within the maximum so I won't bother to optimize to make this routine faster.
-  */  
-  bool A = digitalRead(LEFT_ENCODER_A);
-  bool B = digitalRead(LEFT_ENCODER_B);
-
-  if(A)
-  {
-    if(B)
-    {
-      leftEncoder++;
-      leftEncoderVelocity++;
-    }
-    else
-    {
-      leftEncoder--;
-      leftEncoderVelocity--;   
-    }
-  }
-  else
-  {
-    if(B)
-    {
-      leftEncoder--;
-      leftEncoderVelocity--;
-    }
-    else
-    { 
-      leftEncoder++;
-      leftEncoderVelocity++;
-    }
-  }
-}
-
-
-
-void rightEncoderInterrupt()
-{ /*  This interrupt happens when the A input of the left encoder changes. 
-  */  
-  bool A = digitalRead(RIGHT_ENCODER_A);
-  bool B = digitalRead(RIGHT_ENCODER_B);
-
-  if(A)
-  {
-    if(B)
-    {
-      rightEncoder++;
-      rightEncoderVelocity++;
-    }
-    else
-    {
-      rightEncoder--;   
-      rightEncoderVelocity--;
-    }
-  }
-  else
-  {
-    if(B)
-    {
-      rightEncoder--;
-      rightEncoderVelocity--;
-    }
-    else
-    {
-      rightEncoder++;
-      rightEncoderVelocity++;
-    }
-  }
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-ISR(TIMER0_COMPA_vect)
-{
-  static byte interruptCount = 0;
-  
-  static int leftThrottle = 0;
-  static int rightThrottle = 0;
-  
-  static int lastLeftPterm = 0;
-  static int lastRightPterm = 0;
-  
-  
-  
-
-  // This interrupt is happening at approximately 1000 Hz. That is too fast for my needs.  
-  // I made it this way so that millis will still work and also because using timer 1 to get my actual
-  // desired interrupt rate caused problems with PWM.  Both PWM pins use timer1 as their PWM clock source.
-  
-  if(inMotion == false)
-  {
-    driveLeftMotor(true,0);
-    driveRightMotor(true,0);
-  }
-  
-  
-  if(++interruptCount == 50)
-    {
-      //digitalWrite(LED,HIGH);
-      if(inMotion)
-      {
-        
-        interruptCount = 0; 
-  
-        // This portion of the code runs at about 20Hz
-        // At 30 Hz, I can get encoder differences of up to about +-170 at 6V
-        int actualLeftVelocity = leftEncoderVelocity;
-        int actualRightVelocity = rightEncoderVelocity;
-        
-        leftEncoderVelocity = 0;
-        rightEncoderVelocity = 0;
-  
-  
-        Serial.print(actualRightVelocity);
-        Serial.print(" ");
-        Serial.println(actualLeftVelocity);
-  
-        
-        // #################
-        // Proportional term
-        // #################
-        int Pl = actualLeftVelocity - desiredLeftVelocity;
-        int Pr = actualRightVelocity - desiredRightVelocity;
-        
-  
-        // #################
-        // Differential term
-        // #################
-        int Dl = Pl - lastLeftPterm;
-        lastLeftPterm = Pl;
-   
-        int Dr = Pr - lastRightPterm;
-        lastRightPterm = Pr;
-  
-  
-        // Adjust things by their scale factors
-        Pl *= P_TERM;
-        Pr *= P_TERM;
-        
-        Dl *= D_TERM;
-        Dr *= D_TERM;
-  
-        // Adjust the throttle
-        leftThrottle += Pl;
-        leftThrottle += Dl;
-
-        rightThrottle -= Pr; // This is different from the left motor.  I may have the wires to the 
-        rightThrottle -= Dr; // motor backwards or something... 
-
-        leftThrottle = constrain(leftThrottle,-255,255);
-        rightThrottle = constrain(rightThrottle,-255, 255);
-
-        
-        if(leftThrottle > 0)
-          driveLeftMotor(true,min(leftThrottle,255));
-        else
-          driveLeftMotor(false,min(abs(leftThrottle),255));
-
-        if(rightThrottle > 0)
-          driveRightMotor(true,min(rightThrottle,255));
-        else
-          driveRightMotor(false,min(abs(rightThrottle),255));
-
-        
-          
-
-        // Determine if it should keep going  
-        interruptsLeft--;
-        if(interruptsLeft == 0)
-          {
-          inMotion = false;
-          }
-      } // end of if inMotion
-    }
-
-  //digitalWrite(LED,LOW);
 }
